@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escala do Tríduo · ENS Mãe das Graças</title>
+<meta property="og:title" content="Escala das Missas do Tríduo — 24 a 27/11">
+<meta property="og:description" content="Escolha a data e a função. Cada função só pode ser escolhida por um casal/pessoa em cada dia.">
+<meta name="description" content="Escala das Missas do Tríduo em louvor a Nossa Senhora Medianeira de Todas as Graças.">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --azul:#1d4e89; --azul2:#2f6db3; --ouro:#c9a227; --fundo:#f3f6fb; --card:#fff;
+    --texto:#1f2937; --sub:#6b7280; --linha:#e5e7eb; --verde:#15803d; --verde-bg:#e8f6ee;
+    --cinza-bg:#f1f2f4; --verm:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fundo);color:var(--texto);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  header{background:linear-gradient(135deg,var(--azul),var(--azul2));color:#fff;padding:22px 16px 26px;text-align:center}
+  header .cruz{font-size:30px}
+  header h1{margin:6px 0 4px;font-size:21px;line-height:1.25}
+  header p{margin:0;opacity:.92;font-size:14.5px}
+  main{max-width:760px;margin:-14px auto 40px;padding:0 12px}
+  .card{background:var(--card);border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.07);padding:16px;margin-bottom:14px}
+  .aviso{font-size:14.5px;color:var(--sub)}
+  .aviso b{color:var(--texto)}
+  .erro{background:#fdecec;color:var(--verm);border:1px solid #f5c2c2}
+  .dias{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:12px}
+  .dia-btn{flex:1 0 auto;border:2px solid var(--linha);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer;font:inherit;text-align:center;min-width:82px}
+  .dia-btn b{display:block;font-size:19px;color:var(--azul)}
+  .dia-btn small{color:var(--sub);font-size:12.5px}
+  .dia-btn.ativo{border-color:var(--azul);background:#eaf1fb}
+  .dia-btn .livres{display:block;font-size:11.5px;color:var(--verde);margin-top:2px}
+  h2{font-size:17px;margin:2px 0 12px;color:var(--azul)}
+  .funcao{display:flex;align-items:center;gap:10px;border:1px solid var(--linha);border-radius:12px;padding:11px 12px;margin-bottom:8px}
+  .funcao .ic{font-size:22px;width:30px;text-align:center}
+  .funcao .info{flex:1;min-width:0}
+  .funcao .nome{font-weight:650}
+  .funcao .quem{font-size:14px;color:var(--sub);overflow-wrap:anywhere}
+  .funcao.ocupada{background:var(--cinza-bg)}
+  .funcao.ocupada .quem{color:var(--texto)}
+  .funcao.minha{background:var(--verde-bg);border-color:#b7e0c6}
+  button.esc{border:0;border-radius:10px;background:var(--azul);color:#fff;font:inherit;font-weight:600;padding:9px 14px;cursor:pointer;white-space:nowrap}
+  button.esc:disabled{background:#c7ccd4;cursor:default}
+  .selo{font-size:12.5px;font-weight:700;border-radius:20px;padding:4px 10px;white-space:nowrap}
+  .selo.ok{background:#fff;color:var(--verde);border:1px solid #b7e0c6}
+  .selo.oc{background:#fff;color:var(--sub);border:1px solid var(--linha)}
+  .acoes{display:flex;gap:8px;flex-wrap:wrap}
+  .acoes button{flex:1 1 200px;border:1px solid var(--linha);background:#fff;border-radius:10px;padding:10px;font:inherit;cursor:pointer}
+  .acoes button.wpp{background:#25d366;border-color:#25d366;color:#fff;font-weight:600}
+  .modal-fundo{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:10;padding:12px}
+  .modal-fundo.aberto{display:flex}
+  .modal{background:#fff;border-radius:16px;width:100%;max-width:460px;padding:18px;margin-bottom:max(0px,env(safe-area-inset-bottom))}
+  @media (min-width:600px){.modal-fundo{align-items:center}}
+  .modal h3{margin:0 0 4px;color:var(--azul)}
+  .modal .det{color:var(--sub);font-size:14.5px;margin-bottom:12px}
+  .modal label{font-size:14px;font-weight:600;display:block;margin-bottom:4px}
+  .modal input{width:100%;font:inherit;padding:11px 12px;border:1px solid #cbd2dc;border-radius:10px}
+  .modal .linha{display:flex;gap:8px;margin-top:14px}
+  .modal .linha button{flex:1;font:inherit;padding:11px;border-radius:10px;cursor:pointer;border:1px solid var(--linha);background:#fff}
+  .modal .linha button.conf{background:var(--azul);color:#fff;border-color:var(--azul);font-weight:600}
+  .modal .msg{color:var(--verm);font-size:14px;margin-top:8px;min-height:1em}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-size:14.5px;display:none;z-index:20;max-width:92vw;text-align:center}
+  .carregando{text-align:center;color:var(--sub);padding:24px}
+  footer{text-align:center;color:var(--sub);font-size:12.5px;margin-top:18px}
+  pre.regra{white-space:pre-wrap;background:#f6f7f9;border:1px solid var(--linha);border-radius:8px;padding:10px;font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="cruz">✝️</div>
+  <h1>Missas do Tríduo em louvor a<br>Nossa Senhora Medianeira de Todas as Graças</h1>
+  <p>ENS Mãe das Graças · Padroeira do nosso grupo · 24 a 27 de novembro</p>
+</header>
+
+<main>
+  <div class="card aviso">
+    Toque no <b>dia</b>, escolha a <b>função</b> e digite o nome do casal ou da pessoa.
+    Cada função só pode ser assumida por <b>um casal/pessoa em cada dia</b>; o que já foi escolhido aparece com o nome de quem assumiu.
+  </div>
+
+  <div id="area"><div class="card carregando">Carregando a escala…</div></div>
+
+  <div class="card">
+    <div class="acoes">
+      <button class="wpp" onclick="compartilharLink()">📲 Enviar este formulário pelo WhatsApp</button>
+      <button onclick="copiarEscala()">📋 Copiar a escala preenchida</button>
+    </div>
+  </div>
+  <footer>As escolhas aparecem para todos na hora. Para trocar ou cancelar, fale com a coordenação.</footer>
+</main>
+
+<div class="modal-fundo" id="modal" onclick="if(event.target===this) fecharModal()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitulo">
+    <h3 id="mTitulo"></h3>
+    <div class="det" id="mDet"></div>
+    <label for="mNome">Nome do casal ou da pessoa</label>
+    <input id="mNome" maxlength="80" autocomplete="name" placeholder="Ex.: Maria e José">
+    <div class="msg" id="mMsg"></div>
+    <div class="linha">
+      <button onclick="fecharModal()">Cancelar</button>
+      <button class="conf" id="mConf" onclick="confirmar()">Confirmar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ======================= CONFIGURAÇÃO DA ESCALA ======================= */
+const TITULO = 'Missas do Tríduo em louvor a Nossa Senhora Medianeira de Todas as Graças';
+const ANO = 2026;
+const DIAS = ['2026-11-24','2026-11-25','2026-11-26','2026-11-27'];
+const FUNCOES = [
+  {id:'comentario', nome:'Comentário',                     ic:'🎤'},
+  {id:'leitura',    nome:'Leitura',                        ic:'📖'},
+  {id:'ministro',   nome:'Ministro da Eucaristia',         ic:'🍞'},
+  {id:'entrada',    nome:'Entrada de casais com a imagem', ic:'🙏'},
+  {id:'ofertorio',  nome:'Ofertório (crianças)',           ic:'🧒'},
+  {id:'fotos',      nome:'Fotos',                          ic:'📷'},
+];
+/* já combinados antes do formulário (contam como ocupados) */
+const JA_COMBINADOS = {
+  '2026-11-24__comentario': 'Erica e Uiliam',
+  '2026-11-24__entrada':    'Erica e Uiliam',
+};
+const COLECAO = 'escala_triduo_2026';
+const firebaseConfig = {
+  apiKey: "AIzaSyC2YzQ55pfE_kIpG_aN6iJu3p3C2fq5NGQ",
+  authDomain: "controle-exames-jaborandi.firebaseapp.com",
+  projectId: "controle-exames-jaborandi",
+};
+/* ===================================================================== */
+
+const MODO_TESTE = /[?&]teste=1/.test(location.search);   /* ?teste=1 = sem banco, só neste navegador */
+const SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+let ocupados = {};           /* chave -> {nome} */
+let diaSel = null;
+let escolha = null;          /* {dia, funcao} aberta no modal */
+let minhas = lerMinhas();
+let col = null;
+
+function chave(dia, fid){ return dia+'__'+fid; }
+function dataBR(d){ const [a,m,dd] = d.split('-'); return dd+'/'+m; }
+function semana(d){ const [a,m,dd] = d.split('-').map(Number); return SEMANA[new Date(a,m-1,dd).getDay()]; }
+function hojeISO(){ const t = new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
+function passou(d){ return d < hojeISO(); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function quem(k){ return ocupados[k]?.nome || JA_COMBINADOS[k] || ''; }
+function lerMinhas(){ try{ return JSON.parse(localStorage.getItem('triduo_minhas')||'[]'); }catch(e){ return []; } }
+function gravarMinhas(){ try{ localStorage.setItem('triduo_minhas', JSON.stringify(minhas)); }catch(e){} }
+function toast(t){ const el = document.getElementById('toast'); el.textContent = t; el.style.display='block'; clearTimeout(toast._t); toast._t = setTimeout(()=>el.style.display='none', 3200); }
+
+function render(){
+  if(!diaSel) diaSel = DIAS.find(d=>!passou(d)) || DIAS[DIAS.length-1];
+  const dias = DIAS.map(d=>{
+    const livres = FUNCOES.filter(f=>!quem(chave(d,f.id))).length;
+    return `<button class="dia-btn ${d===diaSel?'ativo':''}" onclick="diaSel='${d}';render()">
+      <small>${semana(d)}</small><b>${dataBR(d)}</b>
+      <span class="livres" style="${livres?'':'color:var(--sub)'}">${passou(d)?'encerrado':livres?livres+' livre'+(livres>1?'s':''):'completo'}</span></button>`;
+  }).join('');
+  const encerrado = passou(diaSel);
+  const linhas = FUNCOES.map(f=>{
+    const k = chave(diaSel,f.id), q = quem(k), minha = minhas.includes(k);
+    return `<div class="funcao ${q?(minha?'minha':'ocupada'):''}">
+      <div class="ic">${f.ic}</div>
+      <div class="info"><div class="nome">${esc(f.nome)}</div>
+        <div class="quem">${q?esc(q)+(minha?' (você)':''):'Disponível'}</div></div>
+      ${q?`<span class="selo ${minha?'ok':'oc'}">${minha?'✔ Sua':'Ocupado'}</span>`
+         :`<button class="esc" ${encerrado?'disabled':''} onclick="abrir('${diaSel}','${f.id}')">Quero esta</button>`}
+    </div>`;
+  }).join('');
+  document.getElementById('area').innerHTML = `<div class="card">
+      <div class="dias">${dias}</div>
+      <h2>${semana(diaSel)}, ${dataBR(diaSel)}${encerrado?' — encerrado':''}</h2>${linhas}</div>`;
+}
+
+function abrir(dia, fid){
+  const f = FUNCOES.find(x=>x.id===fid);
+  if(quem(chave(dia,fid))){ toast('Esta função já foi escolhida.'); return; }
+  escolha = {dia, fid};
+  document.getElementById('mTitulo').textContent = f.ic+' '+f.nome;
+  document.getElementById('mDet').textContent = semana(dia)+', '+dataBR(dia)+'/'+ANO;
+  document.getElementById('mMsg').textContent = '';
+  const inp = document.getElementById('mNome');
+  try{ inp.value = localStorage.getItem('triduo_nome')||''; }catch(e){}
+  document.getElementById('mConf').disabled = false;
+  document.getElementById('modal').classList.add('aberto');
+  setTimeout(()=>inp.focus(), 50);
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('aberto'); escolha = null; }
+
+async function confirmar(){
+  if(!escolha) return;
+  const nome = document.getElementById('mNome').value.replace(/\s+/g,' ').trim();
+  const msg = document.getElementById('mMsg'), bt = document.getElementById('mConf');
+  if(nome.length < 3){ msg.textContent = 'Digite o nome do casal ou da pessoa.'; return; }
+  const k = chave(escolha.dia, escolha.fid), f = FUNCOES.find(x=>x.id===escolha.fid);
+  if(JA_COMBINADOS[k]){ msg.textContent = 'Esta função já foi escolhida por '+JA_COMBINADOS[k]+'.'; return; }
+  bt.disabled = true; msg.textContent = '';
+  try{
+    await reservar(k, {dia:escolha.dia, funcao:f.nome, nome, criadoEm:new Date().toISOString()});
+    try{ localStorage.setItem('triduo_nome', nome); }catch(e){}
+    minhas.push(k); gravarMinhas();
+    fecharModal(); render();
+    toast('Pronto! '+f.nome+' em '+dataBR(k.slice(0,10))+' ficou com '+nome+'.');
+  }catch(e){
+    bt.disabled = false;
+    if(e && e.ocupado){ msg.textContent = 'Alguém escolheu esta função agora há pouco ('+(e.nome||'ocupado')+'). Escolha outra.'; render(); }
+    else msg.textContent = 'Não consegui gravar. Verifique a internet e tente de novo.';
+    console.error(e);
+  }
+}
+
+/* grava só se ninguém tiver pegado antes (transação + regra do banco que proíbe sobrescrever) */
+async function reservar(k, dados){
+  if(MODO_TESTE){
+    const t = JSON.parse(localStorage.getItem('triduo_teste')||'{}');
+    if(t[k]) throw {ocupado:true, nome:t[k].nome};
+    t[k] = dados; localStorage.setItem('triduo_teste', JSON.stringify(t)); ocupados[k] = dados; return;
+  }
+  const ref = col.doc(k);
+  await firebase.firestore().runTransaction(async tx=>{
+    const s = await tx.get(ref);
+    if(s.exists) throw {ocupado:true, nome:s.data().nome};
+    tx.set(ref, dados);
+  }).catch(e=>{
+    if(e && e.ocupado) throw e;
+    if(e && e.code==='permission-denied') throw {ocupado:true, nome:''};   /* o banco recusa sobrescrever */
+    throw e;
+  });
+}
+
+function textoEscala(){
+  let t = '*'+TITULO+'*\n';
+  FUNCOES.forEach(f=>{
+    t += '\n*'+f.nome+'*\n';
+    DIAS.forEach(d=>{ t += dataBR(d)+': '+(quem(chave(d,f.id))||'')+'\n'; });
+  });
+  return t + '\nPara escolher a sua: '+location.href.split('?')[0];
+}
+function compartilharLink(){
+  const txt = 'Estamos organizando as '+TITULO+' (24 a 27/11). Escolha a data e a função, cada uma só pode ser assumida por um casal/pessoa por dia:\n'+location.href.split('?')[0];
+  window.open('https://wa.me/?text='+encodeURIComponent(txt), '_blank');
+}
+async function copiarEscala(){
+  const t = textoEscala();
+  try{ await navigator.clipboard.writeText(t); toast('Escala copiada. É só colar no WhatsApp.'); }
+  catch(e){ window.open('https://wa.me/?text='+encodeURIComponent(t), '_blank'); }
+}
+
+const REGRA = `    match /${COLECAO}/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['dia','funcao','nome','criadoEm'])
+                    && request.resource.data.nome is string
+                    && request.resource.data.nome.size() >= 3
+                    && request.resource.data.nome.size() <= 80;
+      allow update, delete: if false;
+    }`;
+
+function iniciar(){
+  document.getElementById('mNome').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmar(); if(e.key==='Escape') fecharModal(); });
+  if(MODO_TESTE){
+    ocupados = JSON.parse(localStorage.getItem('triduo_teste')||'{}'); render(); return;
+  }
+  if(!window.firebase){ document.getElementById('area').innerHTML = '<div class="card erro">Não foi possível carregar. Verifique a internet e abra o link de novo.</div>'; return; }
+  firebase.initializeApp(firebaseConfig);
+  col = firebase.firestore().collection(COLECAO);
+  const timer = setTimeout(()=>{ if(!Object.keys(ocupados).length && !document.querySelector('.dias')) render(); }, 8000);
+  col.onSnapshot(snap=>{
+    clearTimeout(timer);
+    const o = {}; snap.forEach(d=>o[d.id] = d.data()); ocupados = o; render();
+  }, err=>{
+    clearTimeout(timer); console.error(err);
+    document.getElementById('area').innerHTML = err.code==='permission-denied'
+      ? `<div class="card erro"><b>O banco de dados ainda não liberou esta escala.</b><br>Quem organiza precisa colar a regra abaixo no Firebase (Firestore → Regras), dentro de <code>match /databases/{database}/documents {</code>, e clicar em Publicar:<pre class="regra">${esc(REGRA)}</pre></div>`
+      : '<div class="card erro">Não foi possível carregar a escala. Verifique a internet e abra o link de novo.</div>';
+  });
+}
+iniciar();
+</script>
+</body>
+</html>
