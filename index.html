@@ -64,6 +64,19 @@
   .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-size:14.5px;display:none;z-index:20;max-width:92vw;text-align:center}
   .carregando{text-align:center;color:var(--sub);padding:24px}
   footer{text-align:center;color:var(--sub);font-size:12.5px;margin-top:18px}
+  .quem-linha{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .quem-linha .quem{flex:0 1 auto}
+  .ib{width:32px;height:32px;border-radius:9px;border:1px solid var(--linha);background:#fff;cursor:pointer;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;transition:transform .1s,background .15s}
+  .ib:hover{background:#eaf1fb}
+  .ib.del:hover{background:#fdecec;border-color:#f5c2c2}
+  .ib:active{transform:scale(.92)}
+  .ib:focus-visible,button:focus-visible{outline:3px solid var(--ouro);outline-offset:2px}
+  .progresso{height:8px;background:var(--linha);border-radius:8px;overflow:hidden;margin:-4px 0 14px}
+  .progresso i{display:block;height:100%;background:linear-gradient(90deg,var(--verde),#34b36a);transition:width .3s}
+  .resumo{font-size:13px;color:var(--sub);margin:-6px 0 6px}
+  .modal .linha button.perigo{background:var(--verm);color:#fff;border-color:var(--verm);font-weight:600}
+  .admin-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff8e1;border:1px solid #f1d98a;color:#7a5b00;border-radius:10px;padding:8px 12px;font-size:13.5px;margin-bottom:12px}
+  .admin-bar button{border:1px solid #e0c46b;background:#fff;border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
   pre.regra{white-space:pre-wrap;background:#f6f7f9;border:1px solid var(--linha);border-radius:8px;padding:10px;font-size:12.5px}
 </style>
 </head>
@@ -104,6 +117,17 @@
     </div>
   </div>
 </div>
+<div class="modal-fundo" id="modalDel" onclick="if(event.target===this) fecharDel()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dTitulo">
+    <h3 id="dTitulo">Excluir escolha?</h3>
+    <div class="det" id="dDet"></div>
+    <div class="msg" id="dMsg"></div>
+    <div class="linha">
+      <button onclick="fecharDel()">Cancelar</button>
+      <button class="perigo" id="dConf" onclick="confirmarExclusao()">Excluir</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -124,6 +148,7 @@ const JA_COMBINADOS = {
   '2026-11-24__comentario': 'Erica e Uiliam',
 };
 const COLECAO = 'escala_triduo_2026';
+const ADMIN_PIN = '2611';   /* senha do modo coordenação — TROQUE por uma só sua */
 const firebaseConfig = {
   apiKey: "AIzaSyC2YzQ55pfE_kIpG_aN6iJu3p3C2fq5NGQ",
   authDomain: "controle-exames-jaborandi.firebaseapp.com",
@@ -135,17 +160,21 @@ const MODO_TESTE = /[?&]teste=1/.test(location.search);   /* ?teste=1 = sem banc
 const SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 let ocupados = {};           /* chave -> {nome} */
 let diaSel = null;
-let escolha = null;          /* {dia, funcao} aberta no modal */
+let escolha = null;          /* {dia, fid, modo:'novo'|'editar'} aberta no modal */
+let admin = false;           /* modo coordenação: só neste aparelho, nunca vai no link */
+let exclusao = null;         /* chave aguardando confirmação de exclusão */
 let minhas = lerMinhas();
 let col = null;
 
+function linkPublico(){ return location.origin+location.pathname; }
 function chave(dia, fid){ return dia+'__'+fid; }
 function dataBR(d){ const [a,m,dd] = d.split('-'); return dd+'/'+m; }
 function semana(d){ const [a,m,dd] = d.split('-').map(Number); return SEMANA[new Date(a,m-1,dd).getDay()]; }
 function hojeISO(){ const t = new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
 function passou(d){ return d < hojeISO(); }
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function quem(k){ return ocupados[k]?.nome || JA_COMBINADOS[k] || ''; }
+function quem(k){ const o = ocupados[k]; if(o) return o.removido ? '' : (o.nome||''); return JA_COMBINADOS[k] || ''; }
+function dadosDe(k){ const o = ocupados[k]; return (o && !o.removido) ? o : null; }
 function lerMinhas(){ try{ return JSON.parse(localStorage.getItem('triduo_minhas')||'[]'); }catch(e){ return []; } }
 function gravarMinhas(){ try{ localStorage.setItem('triduo_minhas', JSON.stringify(minhas)); }catch(e){} }
 function toast(t){ const el = document.getElementById('toast'); el.textContent = t; el.style.display='block'; clearTimeout(toast._t); toast._t = setTimeout(()=>el.style.display='none', 3200); }
@@ -159,33 +188,86 @@ function render(){
       <span class="livres" style="${livres?'':'color:var(--sub)'}">${passou(d)?'encerrado':livres?livres+' livre'+(livres>1?'s':''):'completo'}</span></button>`;
   }).join('');
   const encerrado = passou(diaSel);
+  const preench = FUNCOES.filter(f=>quem(chave(diaSel,f.id))).length;
+  const pct = Math.round(preench/FUNCOES.length*100);
   const linhas = FUNCOES.map(f=>{
     const k = chave(diaSel,f.id), q = quem(k), minha = minhas.includes(k);
+    const botoes = (admin && q) ? `<button class="ib" title="Editar nome" aria-label="Editar nome em ${esc(f.nome)}" onclick="editar('${diaSel}','${f.id}')">✏️</button>
+          <button class="ib del" title="Excluir" aria-label="Excluir escolha de ${esc(f.nome)}" onclick="pedirExclusao('${diaSel}','${f.id}')">🗑️</button>` : '';
     return `<div class="funcao ${q?(minha?'minha':'ocupada'):''}">
       <div class="ic">${f.ic}</div>
       <div class="info"><div class="nome">${esc(f.nome)}</div>
-        <div class="quem">${q?esc(q)+(minha?' (você)':''):'Disponível'}</div></div>
+        <div class="quem-linha"><span class="quem">${q?esc(q)+(minha?' (você)':''):'Disponível'}</span>${botoes}</div></div>
       ${q?`<span class="selo ${minha?'ok':'oc'}">${minha?'✔ Sua':'Ocupado'}</span>`
          :`<button class="esc" ${encerrado?'disabled':''} onclick="abrir('${diaSel}','${f.id}')">Quero esta</button>`}
     </div>`;
   }).join('');
+  const barra = admin ? `<div class="admin-bar"><span>🔧 Modo coordenação (só você vê)</span><button onclick="sairAdmin()">Sair</button></div>` : '';
   document.getElementById('area').innerHTML = `<div class="card">
-      <div class="dias">${dias}</div>
-      <h2>${semana(diaSel)}, ${dataBR(diaSel)}${encerrado?' — encerrado':''}</h2>${linhas}</div>`;
+      ${barra}<div class="dias">${dias}</div>
+      <h2>${semana(diaSel)}, ${dataBR(diaSel)}${encerrado?' — encerrado':''}</h2>
+      <div class="resumo">${preench} de ${FUNCOES.length} funções preenchidas</div>
+      <div class="progresso" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
+      ${linhas}</div>`;
 }
 
 function abrir(dia, fid){
   const f = FUNCOES.find(x=>x.id===fid);
   if(quem(chave(dia,fid))){ toast('Esta função já foi escolhida.'); return; }
-  escolha = {dia, fid};
+  escolha = {dia, fid, modo:'novo'};
   document.getElementById('mTitulo').textContent = f.ic+' '+f.nome;
   document.getElementById('mDet').textContent = semana(dia)+', '+dataBR(dia)+'/'+ANO;
   document.getElementById('mMsg').textContent = '';
   const inp = document.getElementById('mNome');
   try{ inp.value = localStorage.getItem('triduo_nome')||''; }catch(e){}
+  document.getElementById('mConf').textContent = 'Confirmar';
   document.getElementById('mConf').disabled = false;
   document.getElementById('modal').classList.add('aberto');
   setTimeout(()=>inp.focus(), 50);
+}
+function editar(dia, fid){
+  if(!admin) return;
+  const f = FUNCOES.find(x=>x.id===fid), k = chave(dia,fid);
+  if(!quem(k)){ toast('Esta função está livre.'); return; }
+  escolha = {dia, fid, modo:'editar'};
+  document.getElementById('mTitulo').textContent = '✏️ Editar · '+f.nome;
+  document.getElementById('mDet').textContent = semana(dia)+', '+dataBR(dia)+'/'+ANO;
+  document.getElementById('mMsg').textContent = '';
+  const inp = document.getElementById('mNome');
+  inp.value = quem(k);
+  document.getElementById('mConf').textContent = 'Salvar';
+  document.getElementById('mConf').disabled = false;
+  document.getElementById('modal').classList.add('aberto');
+  setTimeout(()=>{ inp.focus(); inp.select(); }, 50);
+}
+function pedirExclusao(dia, fid){
+  if(!admin) return;
+  const f = FUNCOES.find(x=>x.id===fid), k = chave(dia,fid);
+  if(!quem(k)){ return; }
+  exclusao = k;
+  document.getElementById('dDet').innerHTML = 'Liberar <b>'+esc(f.nome)+'</b> em <b>'+semana(dia)+', '+dataBR(dia)+'</b>, hoje com <b>'+esc(quem(k))+'</b>?<br>A função voltará a ficar disponível para outras pessoas.';
+  document.getElementById('dMsg').textContent = '';
+  document.getElementById('dConf').disabled = false;
+  document.getElementById('modalDel').classList.add('aberto');
+}
+function fecharDel(){ document.getElementById('modalDel').classList.remove('aberto'); exclusao = null; }
+async function confirmarExclusao(){
+  if(!admin || !exclusao) return;
+  const k = exclusao, bt = document.getElementById('dConf'), msg = document.getElementById('dMsg');
+  const nomeAnt = quem(k);
+  bt.disabled = true; msg.textContent = '';
+  try{
+    await excluir(k);
+    minhas = minhas.filter(x=>x!==k); gravarMinhas();
+    fecharDel(); render();
+    toast('Função liberada ('+nomeAnt+').');
+  }catch(e){
+    bt.disabled = false;
+    msg.textContent = (e && e.code==='permission-denied')
+      ? 'O banco ainda não permite excluir. Atualize a regra no Firebase (veja as instruções com o organizador).'
+      : 'Não consegui excluir. Verifique a internet e tente de novo.';
+    console.error(e);
+  }
 }
 function fecharModal(){ document.getElementById('modal').classList.remove('aberto'); escolha = null; }
 
@@ -195,16 +277,27 @@ async function confirmar(){
   const msg = document.getElementById('mMsg'), bt = document.getElementById('mConf');
   if(nome.length < 3){ msg.textContent = 'Digite o nome do casal ou da pessoa.'; return; }
   const k = chave(escolha.dia, escolha.fid), f = FUNCOES.find(x=>x.id===escolha.fid);
-  if(JA_COMBINADOS[k]){ msg.textContent = 'Esta função já foi escolhida por '+JA_COMBINADOS[k]+'.'; return; }
+  const editando = escolha.modo==='editar';
+  if(editando && !admin) return;
+  if(!editando && quem(k)){ msg.textContent = 'Esta função já foi escolhida por '+quem(k)+'.'; return; }
+  if(editando && nome===quem(k)){ fecharModal(); return; }
   bt.disabled = true; msg.textContent = '';
   try{
+    if(editando){
+      const ant = dadosDe(k);
+      await salvarEdicao(k, {dia:escolha.dia, funcao:f.nome, nome, criadoEm:ant?.criadoEm||new Date().toISOString(), editadoEm:new Date().toISOString()});
+      fecharModal(); render();
+      toast('Nome atualizado: '+nome+'.');
+      return;
+    }
     await reservar(k, {dia:escolha.dia, funcao:f.nome, nome, criadoEm:new Date().toISOString()});
     try{ localStorage.setItem('triduo_nome', nome); }catch(e){}
-    minhas.push(k); gravarMinhas();
+    if(!minhas.includes(k)) minhas.push(k); gravarMinhas();
     fecharModal(); render();
     toast('Pronto! '+f.nome+' em '+dataBR(k.slice(0,10))+' ficou com '+nome+'.');
   }catch(e){
     bt.disabled = false;
+    if(e && e.code==='permission-denied' && escolha && escolha.modo==='editar'){ msg.textContent = 'O banco ainda não permite editar. Atualize a regra no Firebase.'; return; }
     if(e && e.ocupado){ msg.textContent = 'Alguém escolheu esta função agora há pouco ('+(e.nome||'ocupado')+'). Escolha outra.'; render(); }
     else msg.textContent = 'Não consegui gravar. Verifique a internet e tente de novo.';
     console.error(e);
@@ -215,13 +308,13 @@ async function confirmar(){
 async function reservar(k, dados){
   if(MODO_TESTE){
     const t = JSON.parse(localStorage.getItem('triduo_teste')||'{}');
-    if(t[k]) throw {ocupado:true, nome:t[k].nome};
+    if(t[k] && !t[k].removido) throw {ocupado:true, nome:t[k].nome};
     t[k] = dados; localStorage.setItem('triduo_teste', JSON.stringify(t)); ocupados[k] = dados; return;
   }
   const ref = col.doc(k);
   await firebase.firestore().runTransaction(async tx=>{
     const s = await tx.get(ref);
-    if(s.exists) throw {ocupado:true, nome:s.data().nome};
+    if(s.exists && !s.data().removido) throw {ocupado:true, nome:s.data().nome};
     tx.set(ref, dados);
   }).catch(e=>{
     if(e && e.ocupado) throw e;
@@ -230,16 +323,38 @@ async function reservar(k, dados){
   });
 }
 
+/* edita o nome (também funciona para os "já combinados", que passam a ter registro próprio) */
+async function salvarEdicao(k, dados){
+  if(MODO_TESTE){
+    const t = JSON.parse(localStorage.getItem('triduo_teste')||'{}');
+    t[k] = dados; localStorage.setItem('triduo_teste', JSON.stringify(t)); ocupados[k] = dados; return;
+  }
+  await col.doc(k).set(dados);
+}
+/* exclui: registro normal é apagado; "já combinado" recebe marca de removido para não voltar */
+async function excluir(k){
+  const marca = {dia:k.slice(0,10), funcao:(FUNCOES.find(x=>k.endsWith('__'+x.id))||{}).nome||'', nome:'(removido)', criadoEm:new Date().toISOString(), removido:true};
+  if(MODO_TESTE){
+    const t = JSON.parse(localStorage.getItem('triduo_teste')||'{}');
+    if(JA_COMBINADOS[k]) t[k] = marca; else delete t[k];
+    localStorage.setItem('triduo_teste', JSON.stringify(t));
+    if(JA_COMBINADOS[k]) ocupados[k] = marca; else delete ocupados[k];
+    return;
+  }
+  if(JA_COMBINADOS[k]) await col.doc(k).set(marca);
+  else await col.doc(k).delete();
+}
+
 function textoEscala(){
   let t = '*'+TITULO+'*\n';
   FUNCOES.forEach(f=>{
     t += '\n*'+f.nome+'*\n';
     DIAS.forEach(d=>{ t += dataBR(d)+': '+(quem(chave(d,f.id))||'')+'\n'; });
   });
-  return t + '\nPara escolher a sua: '+location.href.split('?')[0];
+  return t + '\nPara escolher a sua: '+linkPublico();
 }
 function compartilharLink(){
-  const txt = 'Estamos organizando as '+TITULO+' (24 a 27/11). Escolha a data e a função, cada uma só pode ser assumida por um casal/pessoa por dia:\n'+location.href.split('?')[0];
+  const txt = 'Estamos organizando as '+TITULO+' (24 a 27/11). Escolha a data e a função, cada uma só pode ser assumida por um casal/pessoa por dia:\n'+linkPublico();
   window.open('https://wa.me/?text='+encodeURIComponent(txt), '_blank');
 }
 async function copiarEscala(){
@@ -250,15 +365,33 @@ async function copiarEscala(){
 
 const REGRA = `    match /${COLECAO}/{id} {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['dia','funcao','nome','criadoEm'])
+      allow create, update: if request.resource.data.keys().hasOnly(['dia','funcao','nome','criadoEm','editadoEm','removido'])
                     && request.resource.data.nome is string
                     && request.resource.data.nome.size() >= 3
                     && request.resource.data.nome.size() <= 80;
-      allow update, delete: if false;
+      allow delete: if true;
     }`;
 
+function iniciarAdmin(){
+  const u = new URL(location.href);
+  if(u.searchParams.has('admin')){
+    const pin = prompt('Senha da coordenação:');
+    if(pin === ADMIN_PIN){ try{ localStorage.setItem('triduo_admin','1'); }catch(e){} }
+    else if(pin !== null){ alert('Senha incorreta.'); }
+    u.searchParams.delete('admin');
+    history.replaceState(null,'',u.pathname+(u.search||'')+u.hash);   /* limpa o ?admin da barra de endereço */
+  }
+  try{ admin = localStorage.getItem('triduo_admin')==='1'; }catch(e){ admin = false; }
+}
+function sairAdmin(){
+  try{ localStorage.removeItem('triduo_admin'); }catch(e){}
+  admin = false; render(); toast('Modo coordenação desligado.');
+}
+
 function iniciar(){
+  iniciarAdmin();
   document.getElementById('mNome').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmar(); if(e.key==='Escape') fecharModal(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ fecharModal(); fecharDel(); } });
   if(MODO_TESTE){
     ocupados = JSON.parse(localStorage.getItem('triduo_teste')||'{}'); render(); return;
   }
